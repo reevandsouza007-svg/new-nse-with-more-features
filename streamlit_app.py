@@ -14,7 +14,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 st.title("📈 NSE Terminal")
-st.caption("Stock analysis workspace | Clean charts, selectable indicators, forecasting scenarios, risk, watchlist and portfolio")
+st.caption("NSE research cockpit | 35+ indicators, strategy confluence, support/resistance, volume radar, scenarios, risk and portfolio")
 st.info("Educational tool only. Historical data and simulations cannot guarantee future prices. Not financial advice.")
 
 def ticker(s):
@@ -56,6 +56,56 @@ def add_indicators(df):
     dx=100*(pdi-mdi).abs()/(pdi+mdi).replace(0,np.nan)
     d["ADX 14"]=dx.ewm(alpha=1/14,min_periods=14,adjust=False).mean()
     d["ATR 14"]=atr
+
+    # Momentum indicators
+    d["ROC 12"] = c.pct_change(12) * 100
+    low14 = l.rolling(14).min()
+    high14 = h.rolling(14).max()
+    d["Stochastic %K"] = 100 * (c - low14) / (high14 - low14).replace(0, np.nan)
+    d["Stochastic %D"] = d["Stochastic %K"].rolling(3).mean()
+    tp = (h + l + c) / 3
+    sma_tp = tp.rolling(20).mean()
+    mad = tp.rolling(20).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
+    d["CCI 20"] = (tp - sma_tp) / (0.015 * mad.replace(0, np.nan))
+    highest14 = h.rolling(14).max()
+    lowest14 = l.rolling(14).min()
+    d["Williams %R"] = -100 * (highest14 - c) / (highest14 - lowest14).replace(0, np.nan)
+
+    # Volume indicators
+    direction = np.sign(c.diff()).fillna(0)
+    d["OBV"] = (direction * d["Volume"].fillna(0)).cumsum() if "Volume" in d else np.nan
+    if "Volume" in d:
+        money_flow_mult = ((c - l) - (h - c)) / (h - l).replace(0, np.nan)
+        money_flow_vol = money_flow_mult.fillna(0) * d["Volume"].fillna(0)
+        positive_flow = money_flow_vol.clip(lower=0).rolling(14).sum()
+        negative_flow = (-money_flow_vol.clip(upper=0)).rolling(14).sum()
+        d["MFI 14"] = 100 - (100 / (1 + positive_flow / negative_flow.replace(0, np.nan)))
+        d["VWAP 20"] = (tp * d["Volume"].fillna(0)).rolling(20).sum() / d["Volume"].fillna(0).rolling(20).sum().replace(0, np.nan)
+        d["Volume SMA 20"] = d["Volume"].rolling(20).mean()
+    else:
+        d["MFI 14"] = np.nan
+        d["VWAP 20"] = np.nan
+        d["Volume SMA 20"] = np.nan
+
+    # Trend / volatility indicators
+    d["Donchian Upper"] = h.rolling(20).max()
+    d["Donchian Lower"] = l.rolling(20).min()
+    d["Donchian Middle"] = (d["Donchian Upper"] + d["Donchian Lower"]) / 2
+    d["Keltner Middle"] = c.ewm(span=20, adjust=False).mean()
+    d["Keltner Upper"] = d["Keltner Middle"] + 2 * atr
+    d["Keltner Lower"] = d["Keltner Middle"] - 2 * atr
+
+    # Ichimoku lines (unshifted for easy historical display)
+    d["Ichimoku Tenkan"] = (h.rolling(9).max() + l.rolling(9).min()) / 2
+    d["Ichimoku Kijun"] = (h.rolling(26).max() + l.rolling(26).min()) / 2
+    d["Ichimoku Span A"] = (d["Ichimoku Tenkan"] + d["Ichimoku Kijun"]) / 2
+    d["Ichimoku Span B"] = (h.rolling(52).max() + l.rolling(52).min()) / 2
+
+    # Supertrend-style direction estimate based on ATR bands
+    hl2 = (h + l) / 2
+    d["Supertrend Upper"] = hl2 + 3 * atr
+    d["Supertrend Lower"] = hl2 - 3 * atr
+    d["Daily Return %"] = c.pct_change() * 100
     return d
 
 def money(x):
@@ -80,7 +130,7 @@ if len(raw)<30: st.error("Not enough historical data."); st.stop()
 df=add_indicators(raw); close=df.Close; price=float(close.iloc[-1]); ret=close.pct_change().dropna()
 info=fundamentals(symbol)
 
-tabs=st.tabs(["Overview","Clean Chart","Indicators","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News"])
+tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting"])
 
 with tabs[0]:
     st.subheader(f"{symbol} overview")
@@ -152,7 +202,13 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("Clean chart")
     st.write("Choose which lines you want to display on the chart.")
-    overlays=st.multiselect("Show indicator lines",["EMA 9","EMA 20","EMA 50","SMA 20","SMA 50","SMA 200","BB Upper","BB Middle","BB Lower"],default=["EMA 20","SMA 50"])
+    overlay_options=["EMA 9","EMA 20","EMA 50","SMA 20","SMA 50","SMA 200",
+                     "BB Upper","BB Middle","BB Lower","VWAP 20",
+                     "Donchian Upper","Donchian Middle","Donchian Lower",
+                     "Keltner Upper","Keltner Middle","Keltner Lower",
+                     "Ichimoku Tenkan","Ichimoku Kijun","Ichimoku Span A","Ichimoku Span B",
+                     "Supertrend Upper","Supertrend Lower"]
+    overlays=st.multiselect("Show indicator lines",overlay_options,default=["EMA 20","SMA 50"])
     chart_type=st.radio("Price style",["Candlestick","Closing price line"],horizontal=True)
     volume=st.checkbox("Show volume",False)
     view=df.tail(chart_days); fig=go.Figure()
@@ -168,7 +224,11 @@ with tabs[1]:
 
 with tabs[2]:
     st.subheader("Separate indicator charts")
-    chosen=st.selectbox("Choose indicator",["RSI 14","MACD","ADX 14","ATR 14","Daily return (%)","Bollinger Bands"])
+    chosen=st.selectbox("Choose indicator",[
+        "RSI 14","MACD","ADX 14","ATR 14","Daily return (%)","Bollinger Bands",
+        "Stochastic","ROC 12","CCI 20","Williams %R","MFI 14","OBV",
+        "VWAP 20","Donchian Channels","Keltner Channels","Ichimoku","Volume"
+    ])
     v=df.tail(chart_days); fig=go.Figure()
     if chosen=="MACD":
         fig.add_trace(go.Scatter(x=v.index,y=v["MACD"],name="MACD"))
@@ -178,17 +238,108 @@ with tabs[2]:
         for col in ["BB Upper","BB Middle","BB Lower"]: fig.add_trace(go.Scatter(x=v.index,y=v[col],name=col))
         fig.add_trace(go.Scatter(x=v.index,y=v.Close,name="Close"))
     elif chosen=="Daily return (%)":
-        fig.add_trace(go.Bar(x=v.index,y=v.Close.pct_change()*100,name=chosen))
+        fig.add_trace(go.Bar(x=v.index,y=v["Daily Return %"],name=chosen))
+    elif chosen=="Stochastic":
+        fig.add_trace(go.Scatter(x=v.index,y=v["Stochastic %K"],name="%K"))
+        fig.add_trace(go.Scatter(x=v.index,y=v["Stochastic %D"],name="%D"))
+        fig.add_hline(y=80,line_dash="dash"); fig.add_hline(y=20,line_dash="dash")
+    elif chosen in ["Donchian Channels","Keltner Channels","Ichimoku"]:
+        groups = {
+            "Donchian Channels":["Donchian Upper","Donchian Middle","Donchian Lower"],
+            "Keltner Channels":["Keltner Upper","Keltner Middle","Keltner Lower"],
+            "Ichimoku":["Ichimoku Tenkan","Ichimoku Kijun","Ichimoku Span A","Ichimoku Span B"]
+        }
+        for col in groups[chosen]:
+            fig.add_trace(go.Scatter(x=v.index,y=v[col],name=col))
+        fig.add_trace(go.Scatter(x=v.index,y=v.Close,name="Close"))
+    elif chosen=="Volume":
+        if "Volume" in v:
+            fig.add_trace(go.Bar(x=v.index,y=v["Volume"],name="Volume"))
+            if "Volume SMA 20" in v:
+                fig.add_trace(go.Scatter(x=v.index,y=v["Volume SMA 20"],name="Volume SMA 20"))
     else:
         fig.add_trace(go.Scatter(x=v.index,y=v[chosen],name=chosen))
-        if chosen=="RSI 14": fig.add_hline(y=70,line_dash="dash"); fig.add_hline(y=30,line_dash="dash")
+        if chosen=="RSI 14": st.caption("RSI above 70 is often called overbought; below 30 oversold. Neither is an automatic sell/buy signal."); fig.add_hline(y=70,line_dash="dash"); fig.add_hline(y=30,line_dash="dash")
         if chosen=="ADX 14": fig.add_hline(y=25,line_dash="dash")
+        if chosen=="Williams %R": fig.add_hline(y=-20,line_dash="dash"); fig.add_hline(y=-80,line_dash="dash")
+        if chosen=="MFI 14": fig.add_hline(y=80,line_dash="dash"); fig.add_hline(y=20,line_dash="dash")
     fig.update_layout(template="plotly_dark",height=430,title=chosen,hovermode="x unified")
     st.plotly_chart(fig,use_container_width=True)
-    cols=["RSI 14","MACD","MACD Signal","MACD Histogram","ADX 14","ATR 14","EMA 9","EMA 20","EMA 50","SMA 20","SMA 50","SMA 200"]
+    cols=["RSI 14","MACD","MACD Signal","MACD Histogram","ADX 14","ATR 14",
+          "Stochastic %K","Stochastic %D","ROC 12","CCI 20","Williams %R","MFI 14",
+          "OBV","VWAP 20","Volume SMA 20","EMA 9","EMA 20","EMA 50","SMA 20","SMA 50","SMA 200",
+          "BB Upper","BB Middle","BB Lower","Donchian Upper","Donchian Middle","Donchian Lower",
+          "Keltner Upper","Keltner Middle","Keltner Lower","Ichimoku Tenkan","Ichimoku Kijun",
+          "Ichimoku Span A","Ichimoku Span B","Supertrend Upper","Supertrend Lower"]
     st.dataframe(pd.DataFrame({"Indicator":cols,"Latest value":[df[c].iloc[-1] for c in cols]}),use_container_width=True,hide_index=True)
 
 with tabs[3]:
+    st.subheader("🧪 Strategy Lab — indicator confluence & pattern radar")
+    st.caption("A research workspace that combines indicators, support/resistance and unusual volume. It does not predict with certainty.")
+    latest = df.iloc[-1]
+    checks = {
+        "Trend: EMA 20 > EMA 50": bool(latest["EMA 20"] > latest["EMA 50"]),
+        "Price above SMA 50": bool(pd.notna(latest["SMA 50"]) and price > latest["SMA 50"]),
+        "MACD bullish": bool(latest["MACD"] > latest["MACD Signal"]),
+        "RSI in momentum zone (50–70)": bool(pd.notna(latest["RSI 14"]) and 50 <= latest["RSI 14"] < 70),
+        "ADX trend strength > 20": bool(pd.notna(latest["ADX 14"]) and latest["ADX 14"] > 20),
+        "ROC positive": bool(pd.notna(latest["ROC 12"]) and latest["ROC 12"] > 0),
+        "MFI positive flow (>50)": bool(pd.notna(latest["MFI 14"]) and latest["MFI 14"] > 50),
+        "Close above VWAP 20": bool(pd.notna(latest["VWAP 20"]) and price > latest["VWAP 20"]),
+    }
+    score = sum(checks.values())
+    left, right = st.columns([1, 2])
+    with left:
+        st.metric("Indicator confluence", f"{score}/8")
+        st.progress(score / 8)
+        if score >= 6:
+            st.success("Multiple bullish conditions aligned — research further; not an automatic buy.")
+        elif score <= 2:
+            st.warning("Few bullish conditions aligned — caution and review the trend.")
+        else:
+            st.info("Mixed conditions — consider waiting for confirmation.")
+    with right:
+        st.dataframe(pd.DataFrame([{"Condition": k, "Pass": "Yes" if v else "No"} for k, v in checks.items()]),
+                     use_container_width=True, hide_index=True)
+
+    st.markdown("### 📍 Dynamic support and resistance")
+    sr_window = st.slider("Look-back window (trading days)", 20, min(120, max(20, len(df)-1)), min(60, max(20, len(df)-1)))
+    recent = df.tail(sr_window)
+    support = float(recent["Low"].min())
+    resistance = float(recent["High"].max())
+    a, b, c = st.columns(3)
+    a.metric("Latest close", money(price))
+    b.metric(f"Approx. support ({sr_window}d)", money(support), f"{(price/support-1)*100:+.2f}% from support" if support else None)
+    c.metric(f"Approx. resistance ({sr_window}d)", money(resistance), f"{(resistance/price-1)*100:+.2f}% above price" if price else None)
+    st.caption("These are simple recent-window levels, not guaranteed turning points.")
+
+    st.markdown("### ⚡ Unusual-volume radar")
+    if "Volume" in df and df["Volume"].notna().sum() > 20:
+        vol_latest = latest.get("Volume", np.nan)
+        vol_avg = latest.get("Volume SMA 20", np.nan)
+        ratio = vol_latest / vol_avg if pd.notna(vol_latest) and pd.notna(vol_avg) and vol_avg else np.nan
+        st.metric("Latest volume / 20-day average", f"{ratio:.2f}×" if pd.notna(ratio) else "N/A")
+        if pd.notna(ratio) and ratio >= 1.5:
+            st.info("Volume is at least 1.5× its 20-day average. Check whether price movement confirms the move.")
+        else:
+            st.write("No 1.5× volume expansion detected in the latest session, or volume data is unavailable.")
+    else:
+        st.write("Volume data is unavailable for this ticker/provider.")
+
+    st.markdown("### 🕯️ Simple candle / breakout flags")
+    prior_high = df["High"].shift(1).rolling(20).max().iloc[-1]
+    prior_low = df["Low"].shift(1).rolling(20).min().iloc[-1]
+    flags = [
+        ("Close above prior 20-day high", bool(pd.notna(prior_high) and price > prior_high)),
+        ("Close below prior 20-day low", bool(pd.notna(prior_low) and price < prior_low)),
+        ("RSI above 70 (potentially stretched)", bool(pd.notna(latest["RSI 14"]) and latest["RSI 14"] > 70)),
+        ("RSI below 30 (potentially oversold)", bool(pd.notna(latest["RSI 14"]) and latest["RSI 14"] < 30)),
+    ]
+    st.dataframe(pd.DataFrame([{"Radar flag": k, "Triggered": "Yes" if v else "No"} for k, v in flags]),
+                 use_container_width=True, hide_index=True)
+    st.caption("This lab uses transparent rules, not machine learning. Backtest and account for transaction costs before using any strategy with real money.")
+
+with tabs[4]:
     st.subheader("Future growth and loss scenarios")
     horizon=st.select_slider("Forecast horizon (trading days)",[7,30,90,252],value=30)
     sims=st.select_slider("Simulation paths",[500,1000,2000,5000],value=1000)
@@ -206,7 +357,7 @@ with tabs[3]:
     st.plotly_chart(fig,use_container_width=True)
     st.warning("Monte Carlo simulation based on historical returns, not a trained AI forecast. Probabilities are not calibrated real-world odds; actual prices may fall outside these scenarios.")
 
-with tabs[4]:
+with tabs[5]:
     st.subheader("Risk analysis")
     vol=float(ret.std()*np.sqrt(252)*100); years=len(ret)/252
     ann=((price/float(close.iloc[0]))**(1/years)-1)*100 if years>0 else np.nan
@@ -217,7 +368,7 @@ with tabs[4]:
     dd_df=pd.DataFrame({"Date":dd.index,"Drawdown (%)":dd.values*100}).tail(chart_days)
     st.plotly_chart(px.area(dd_df,x="Date",y="Drawdown (%)",template="plotly_dark",title="Drawdown from previous peak"),use_container_width=True)
 
-with tabs[5]:
+with tabs[6]:
     st.subheader("Compare stocks")
     syms=st.text_input("2–5 NSE tickers, comma-separated","RELIANCE,TCS,INFY")
     cp=st.selectbox("Comparison period",["6mo","1y","2y","5y"],index=1)
@@ -234,7 +385,7 @@ with tabs[5]:
             st.dataframe(frame.tail(10),use_container_width=True)
         else: st.warning("Could not retrieve at least two valid stock histories.")
 
-with tabs[6]:
+with tabs[7]:
     st.subheader("Watchlist")
     watch=st.text_input("Up to 10 tickers","RELIANCE,TCS,INFY,HDFCBANK,SBIN")
     if st.button("Refresh watchlist"):
@@ -249,7 +400,7 @@ with tabs[6]:
         if rows: st.dataframe(pd.DataFrame(rows).style.format({"Latest price":"₹{:,.2f}","Daily change (%)":"{:+.2f}%"}),use_container_width=True,hide_index=True)
         else: st.warning("No watchlist data returned.")
 
-with tabs[7]:
+with tabs[8]:
     st.subheader("Portfolio profit/loss calculator")
     st.caption("This calculator does not connect to your broker or save transactions.")
     holdings=[]
@@ -270,7 +421,7 @@ with tabs[7]:
         invested=pf.Invested.sum(); value=pf.Value.sum(); c=st.columns(3)
         c[0].metric("Invested",money(invested)); c[1].metric("Latest value",money(value)); c[2].metric("Profit / loss",money(value-invested),f"{(value/invested-1)*100:+.2f}%" if invested else "N/A")
 
-with tabs[8]:
+with tabs[9]:
     st.subheader("Fundamental data")
     fields=[("Company","longName"),("Sector","sector"),("Industry","industry"),("Trailing P/E","trailingPE"),("Forward P/E","forwardPE"),("Price/book","priceToBook"),("EPS","trailingEps"),("ROE","returnOnEquity"),("Profit margin","profitMargins"),("Revenue growth","revenueGrowth"),("Debt/equity","debtToEquity"),("Dividend yield","dividendYield"),("Market cap","marketCap"),("52-week high","fiftyTwoWeekHigh"),("52-week low","fiftyTwoWeekLow")]
     rows=[]
@@ -283,7 +434,7 @@ with tabs[8]:
     if rows: st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
     else: st.info("Fundamental information is unavailable for this ticker from the current provider.")
 
-with tabs[9]:
+with tabs[10]:
     st.subheader(f"News: {symbol}")
     if st.button("Load latest news"):
         try:
@@ -299,6 +450,87 @@ with tabs[9]:
                     if x.get("summary"): st.write(x["summary"])
                     if url: st.link_button("Open article",url)
         except Exception as e: st.error(f"News could not be loaded: {e}")
+
+
+with tabs[11]:
+    st.subheader("🧪 Strategy Backtesting")
+    st.write("Test a rule-based strategy on the selected stock's historical data. Signals are generated from completed-day data and positions are applied from the next trading day to reduce look-ahead bias.")
+    if len(df) < 80:
+        st.warning("Not enough historical data for a meaningful backtest. Select a longer historical period.")
+    else:
+        strategy = st.selectbox("Strategy to test", [
+            "EMA crossover (20/50)", "RSI mean reversion (30/70)",
+            "MACD crossover", "Trend confirmation (EMA + MACD + RSI)"
+        ])
+        direction = st.selectbox("Trading mode", ["Long only (buy / cash)", "Long / short (simplified)"])
+        fee_bps = st.slider("Estimated transaction cost per position change (basis points)", 0, 50, 10, 1,
+                            help="10 basis points = 0.10%. This is a simplified cost assumption, not your exact brokerage/taxes.")
+        starting_cash = st.number_input("Starting capital (₹)", min_value=1000, max_value=100000000, value=100000, step=10000)
+
+        bt = df.copy().dropna(subset=["Close"])
+        close = bt["Close"]
+        if strategy == "EMA crossover (20/50)":
+            raw = (bt["EMA 20"] > bt["EMA 50"]).astype(float)
+        elif strategy == "RSI mean reversion (30/70)":
+            # Hold after RSI recovers above 30; exit when RSI reaches 70 or falls below 30.
+            raw = pd.Series(np.nan, index=bt.index, dtype=float)
+            state = 0.0
+            for idx, value in bt["RSI 14"].items():
+                if pd.notna(value):
+                    if value < 30: state = 1.0
+                    elif value > 70: state = 0.0
+                raw.loc[idx] = state
+            raw = raw.ffill().fillna(0.0)
+        elif strategy == "MACD crossover":
+            raw = (bt["MACD"] > bt["MACD Signal"]).astype(float)
+        else:
+            raw = ((bt["EMA 20"] > bt["EMA 50"]) & (bt["MACD"] > bt["MACD Signal"]) & (bt["RSI 14"] > 50)).astype(float)
+        if direction == "Long / short (simplified)":
+            # Explicitly simplified: short when long signal is off.
+            raw = raw * 2 - 1
+        # Apply signal on next bar, avoiding same-day close look-ahead.
+        position = raw.shift(1).fillna(0.0)
+        daily_returns = close.pct_change().fillna(0.0)
+        turnover = position.diff().abs().fillna(position.abs())
+        cost = turnover * (fee_bps / 10000.0)
+        strategy_returns = position * daily_returns - cost
+        equity = starting_cash * (1 + strategy_returns).cumprod()
+        benchmark = starting_cash * (1 + daily_returns).cumprod()
+        peak = equity.cummax()
+        drawdown = equity / peak - 1
+        total_return = equity.iloc[-1] / starting_cash - 1
+        years = max((bt.index[-1] - bt.index[0]).days / 365.25, 1/365.25)
+        cagr = (equity.iloc[-1] / starting_cash) ** (1 / years) - 1 if equity.iloc[-1] > 0 else -1
+        daily_std = strategy_returns.std()
+        sharpe = (strategy_returns.mean() / daily_std * np.sqrt(252)) if daily_std and pd.notna(daily_std) else np.nan
+        changes = position.diff().fillna(position.iloc[0]).abs()
+        trades = int((changes > 0).sum())
+        closed_trade_returns = daily_returns[(position.shift(1).fillna(0) != 0) & (position == 0)]
+        win_rate = float((closed_trade_returns > 0).mean() * 100) if len(closed_trade_returns) else np.nan
+        b1,b2,b3,b4 = st.columns(4)
+        b1.metric("Strategy ending value", money(float(equity.iloc[-1])), f"{total_return*100:+.2f}% total")
+        b2.metric("Buy & hold ending value", money(float(benchmark.iloc[-1])), f"{(benchmark.iloc[-1]/starting_cash-1)*100:+.2f}% total")
+        b3.metric("Max drawdown", f"{drawdown.min()*100:.2f}%")
+        b4.metric("CAGR (approx.)", f"{cagr*100:.2f}%")
+        b5,b6,b7 = st.columns(3)
+        b5.metric("Sharpe ratio (approx.)", f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A")
+        b6.metric("Position changes", f"{trades}")
+        b7.metric("Win rate (simple exit-day proxy)", f"{win_rate:.1f}%" if pd.notna(win_rate) else "N/A")
+        chart = go.Figure()
+        chart.add_trace(go.Scatter(x=equity.index, y=equity, name="Strategy equity"))
+        chart.add_trace(go.Scatter(x=benchmark.index, y=benchmark, name="Buy & hold benchmark"))
+        chart.update_layout(title="Equity curve", xaxis_title="Date", yaxis_title="Portfolio value (₹)", template="plotly_dark", height=430)
+        st.plotly_chart(chart, use_container_width=True)
+        ddfig = go.Figure(go.Scatter(x=drawdown.index, y=drawdown*100, name="Drawdown %", fill="tozeroy"))
+        ddfig.update_layout(title="Strategy drawdown", xaxis_title="Date", yaxis_title="Drawdown (%)", template="plotly_dark", height=300)
+        st.plotly_chart(ddfig, use_container_width=True)
+        with st.expander("View latest backtest rows"):
+            detail = pd.DataFrame({"Close": close, "Signal before shift": raw, "Position used": position,
+                                   "Daily return %": daily_returns*100, "Strategy return %": strategy_returns*100,
+                                   "Strategy equity": equity, "Benchmark equity": benchmark, "Drawdown %": drawdown*100})
+            st.dataframe(detail.tail(100).round(3), use_container_width=True)
+        st.warning("Backtest results are historical simulations, not predictions. They exclude slippage, taxes, liquidity limits, corporate-action complexities and exact brokerage schedules. Long/short mode is simplified and does not model margin or short-selling constraints. Try multiple periods and stocks; avoid selecting a strategy only because it performed well in the past.")
+
 
 st.divider()
 st.caption(f"Latest price observation: {df.index[-1].date()} | Data: Yahoo Finance via yfinance | Educational use only.")
