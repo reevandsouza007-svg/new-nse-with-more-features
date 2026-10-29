@@ -130,7 +130,7 @@ if len(raw)<30: st.error("Not enough historical data."); st.stop()
 df=add_indicators(raw); close=df.Close; price=float(close.iloc[-1]); ret=close.pct_change().dropna()
 info=fundamentals(symbol)
 
-tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting"])
+tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner"])
 
 with tabs[0]:
     st.subheader(f"{symbol} overview")
@@ -531,6 +531,200 @@ with tabs[11]:
             st.dataframe(detail.tail(100).round(3), use_container_width=True)
         st.warning("Backtest results are historical simulations, not predictions. They exclude slippage, taxes, liquidity limits, corporate-action complexities and exact brokerage schedules. Long/short mode is simplified and does not model margin or short-selling constraints. Try multiple periods and stocks; avoid selecting a strategy only because it performed well in the past.")
 
+
+
+with tabs[12]:
+    st.subheader("🔎 Advanced NSE Stock Scanner")
+    st.caption("Scans a chosen list of NSE tickers using available Yahoo Finance data. Results are screening signals, not recommendations.")
+    default_universe = "RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK,SBIN,ITC,LT,BHARTIARTL,AXISBANK,TATAMOTORS, SUNPHARMA"
+    universe_text = st.text_area("NSE tickers (comma-separated)", default_universe, height=90)
+    scan_period = st.selectbox("Scanner history", ["6mo", "1y", "2y"], index=1, key="scan_period")
+    max_scan = st.slider("Maximum tickers to scan", 5, 25, 12)
+    if st.button("Run stock scan", type="primary"):
+        scan_symbols = list(dict.fromkeys(x.strip().upper() for x in universe_text.replace("\n", ",").split(",") if x.strip()))[:max_scan]
+        scan_rows=[]
+        progress=st.progress(0)
+        for i, sym in enumerate(scan_symbols):
+            try:
+                hist=history(sym, scan_period)
+                if hist is None or hist.empty or len(hist)<60:
+                    scan_rows.append({"Stock":sym,"Status":"Insufficient data"})
+                else:
+                    ind=add_indicators(hist.dropna(subset=["Close"]))
+                    z=ind.iloc[-1]
+                    close_now=float(z["Close"])
+                    conditions=[pd.notna(z.get("EMA 20")) and z["EMA 20"]>z["EMA 50"],
+                                pd.notna(z.get("MACD")) and z["MACD"]>z["MACD Signal"],
+                                pd.notna(z.get("RSI 14")) and 50<=z["RSI 14"]<=70,
+                                pd.notna(z.get("SMA 50")) and close_now>z["SMA 50"],
+                                pd.notna(z.get("ROC 12")) and z["ROC 12"]>0,
+                                pd.notna(z.get("ADX 14")) and z["ADX 14"]>=20]
+                    score=int(sum(bool(x) for x in conditions))
+                    label="Bullish conditions" if score>=5 else ("Mixed conditions" if score>=3 else "Caution")
+                    scan_rows.append({"Stock":sym,"Price (₹)":round(close_now,2),"Daily change %":round(float(ind.Close.pct_change().iloc[-1]*100),2),
+                                      "RSI":round(float(z["RSI 14"]),2) if pd.notna(z["RSI 14"]) else np.nan,
+                                      "ADX":round(float(z["ADX 14"]),2) if pd.notna(z["ADX 14"]) else np.nan,
+                                      "Conditions passed / 6":score,"Assessment":label,"Status":"OK"})
+            except Exception as e:
+                scan_rows.append({"Stock":sym,"Status":f"Data error: {str(e)[:70]}"})
+            progress.progress((i+1)/max(1,len(scan_symbols)))
+        scan_df=pd.DataFrame(scan_rows)
+        if "Conditions passed / 6" in scan_df:
+            scan_df=scan_df.sort_values("Conditions passed / 6",ascending=False,na_position="last")
+        st.session_state["nse_scan_results"]=scan_df
+    if "nse_scan_results" in st.session_state:
+        scan_df=st.session_state["nse_scan_results"]
+        st.dataframe(scan_df,use_container_width=True,hide_index=True)
+        st.download_button("Download scan results CSV",scan_df.to_csv(index=False).encode("utf-8"),"nse_stock_scan.csv","text/csv")
+    st.warning("Yahoo Finance data can be delayed, incomplete or unavailable. A high score does not guarantee future gains. Confirm ticker data and test any rule historically.")
+
+with tabs[13]:
+    st.subheader("🧠 Fundamental + Technical Smart Score")
+    st.caption("Transparent, rule-based scoring. Missing fundamentals are excluded rather than treated as good or bad.")
+    latest=df.iloc[-1]
+    tech_checks={
+        "EMA 20 above EMA 50":pd.notna(latest["EMA 20"]) and latest["EMA 20"]>latest["EMA 50"],
+        "Price above SMA 50":pd.notna(latest["SMA 50"]) and price>latest["SMA 50"],
+        "MACD above signal":pd.notna(latest["MACD"]) and latest["MACD"]>latest["MACD Signal"],
+        "RSI between 50 and 70":pd.notna(latest["RSI 14"]) and 50<=latest["RSI 14"]<=70,
+        "Positive 12-period ROC":pd.notna(latest.get("ROC 12")) and latest["ROC 12"]>0,
+        "ADX at least 20":pd.notna(latest["ADX 14"]) and latest["ADX 14"]>=20,
+    }
+    tech_score=100*sum(bool(v) for v in tech_checks.values())/len(tech_checks)
+    st.metric("Technical conditions score",f"{tech_score:.0f}/100")
+    st.dataframe(pd.DataFrame([{"Technical condition":k,"Pass":"Yes" if v else "No"} for k,v in tech_checks.items()]),use_container_width=True,hide_index=True)
+    st.markdown("#### Fundamental checks")
+    fundamental_rules=[("Revenue growth", "revenueGrowth", lambda x:x>0, "Positive revenue growth"),
+                       ("Profit margin", "profitMargins", lambda x:x>0.08, "Profit margin above 8%"),
+                       ("Return on equity", "returnOnEquity", lambda x:x>0.12, "ROE above 12%"),
+                       ("Debt/equity", "debtToEquity", lambda x:x<100, "Debt/equity below 100 (provider units)"),
+                       ("Free cash flow", "freeCashflow", lambda x:x>0, "Positive free cash flow")]
+    frows=[]
+    for label,key,rule,description in fundamental_rules:
+        val=info.get(key)
+        try:
+            numeric=float(val) if val is not None else np.nan
+            passed=bool(pd.notna(numeric) and rule(numeric))
+            frows.append({"Metric":label,"Available value":round(numeric*100,2) if key in ["revenueGrowth","profitMargins","returnOnEquity"] and pd.notna(numeric) else (round(numeric,2) if pd.notna(numeric) else "Unavailable"),"Rule":description,"Result":"Pass" if passed else ("Fail" if pd.notna(numeric) else "Missing")})
+        except Exception:
+            frows.append({"Metric":label,"Available value":"Unavailable","Rule":description,"Result":"Missing"})
+    st.dataframe(pd.DataFrame(frows),use_container_width=True,hide_index=True)
+    available=[r for r in frows if r["Result"]!="Missing"]
+    fund_score=100*sum(r["Result"]=="Pass" for r in available)/len(available) if available else np.nan
+    a,b,c=st.columns(3)
+    a.metric("Technical score",f"{tech_score:.0f}/100")
+    b.metric("Fundamental score",f"{fund_score:.0f}/100" if pd.notna(fund_score) else "N/A")
+    combined=(tech_score+fund_score)/2 if pd.notna(fund_score) else np.nan
+    c.metric("Combined score",f"{combined:.0f}/100" if pd.notna(combined) else "N/A")
+    st.caption("Weights are illustrative and equal-weighted. Provider fundamentals may be missing, stale or reported in different units; verify figures against company filings before making decisions.")
+
+with tabs[14]:
+    st.subheader("🌦️ Market Regime Detector")
+    st.caption("Estimates trend and volatility conditions for the selected stock and Nifty 50 using historical price data.")
+    regime_period=st.selectbox("Regime lookback",["6mo","1y","2y","5y"],index=1,key="regime_period")
+    regime_rows=[]
+    for name, sym in [(symbol,symbol),("NIFTY 50","^NSEI")]:
+        try:
+            h=history(sym,regime_period)
+            if h is None or h.empty or len(h)<40: continue
+            h=add_indicators(h.dropna(subset=["Close"]))
+            q=h.iloc[-1]
+            vol=float(h.Close.pct_change().rolling(20).std().iloc[-1]*np.sqrt(252)*100)
+            trend_up=bool(pd.notna(q.get("SMA 50")) and q.Close>q["SMA 50"] and q["EMA 20"]>q["EMA 50"])
+            trend_down=bool(pd.notna(q.get("SMA 50")) and q.Close<q["SMA 50"] and q["EMA 20"]<q["EMA 50"])
+            regime="Bullish trend" if trend_up else ("Bearish trend" if trend_down else "Sideways / mixed")
+            if pd.notna(vol) and vol>35: regime += " + High volatility"
+            regime_rows.append({"Instrument":name,"Latest close":round(float(q.Close),2),"50-day SMA":round(float(q["SMA 50"]),2) if pd.notna(q["SMA 50"]) else np.nan,"Annualized 20-day volatility %":round(vol,2),"Estimated regime":regime})
+        except Exception as e:
+            regime_rows.append({"Instrument":name,"Estimated regime":f"Unavailable: {str(e)[:60]}"})
+    if regime_rows: st.dataframe(pd.DataFrame(regime_rows),use_container_width=True,hide_index=True)
+    else: st.info("Market data unavailable for this period.")
+    st.caption("Regime labels are simple rule-based classifications, not official market states or predictions.")
+
+with tabs[15]:
+    st.subheader("🏆 Strategy Leaderboard")
+    st.caption(f"Compares simple strategy rules on {symbol} using the selected historical dataset. Positions are shifted to the next bar to reduce look-ahead bias.")
+    start_cash=st.number_input("Leaderboard starting capital (₹)",min_value=1000,max_value=100000000,value=100000,step=10000,key="leader_cash")
+    fee=st.slider("Cost per position change (basis points)",0,50,10,key="leader_fee")/10000
+    close_series=df.Close.dropna()
+    daily=close_series.pct_change().fillna(0)
+    strategy_signals={
+        "EMA 20/50":(df["EMA 20"]>df["EMA 50"]).astype(float),
+        "MACD crossover":(df["MACD"]>df["MACD Signal"]).astype(float),
+        "RSI momentum":((df["RSI 14"]>50)&(df["RSI 14"]<70)&(df["EMA 20"]>df["EMA 50"])).astype(float),
+        "Trend + MACD + RSI":((df["EMA 20"]>df["EMA 50"])&(df["MACD"]>df["MACD Signal"])&(df["RSI 14"]>50)).astype(float),
+    }
+    leaderboard=[]
+    for name,sig in strategy_signals.items():
+        pos=sig.shift(1).fillna(0)
+        strat_ret=pos*daily-pos.diff().abs().fillna(pos.abs())*fee
+        eq=start_cash*(1+strat_ret).cumprod()
+        dd=(eq/eq.cummax()-1).min()*100
+        std=strat_ret.std()
+        sharpe=strat_ret.mean()/std*np.sqrt(252) if pd.notna(std) and std>0 else np.nan
+        leaderboard.append({"Strategy":name,"Total return %":round((eq.iloc[-1]/start_cash-1)*100,2),"Max drawdown %":round(float(dd),2),"Sharpe (approx.)":round(float(sharpe),2) if pd.notna(sharpe) else np.nan,"Position changes":int((pos.diff().fillna(pos.iloc[0]).abs()>0).sum())})
+    lead=pd.DataFrame(leaderboard).sort_values("Sharpe (approx.)",ascending=False,na_position="last")
+    st.dataframe(lead,use_container_width=True,hide_index=True)
+    st.download_button("Download leaderboard CSV",lead.to_csv(index=False).encode("utf-8"),"strategy_leaderboard.csv","text/csv")
+    st.warning("This is an in-sample comparison, so it may overfit historical data. Validate on a separate time period and include slippage, taxes, liquidity and corporate actions before real-world use.")
+
+with tabs[16]:
+    st.subheader("📓 Trade Journal")
+    st.caption("Record paper trades or your own trades and review your decision process. Entries are stored in this active Streamlit session; download CSV to keep a permanent copy.")
+    if "trade_journal_rows" not in st.session_state:
+        st.session_state["trade_journal_rows"]=[]
+    with st.form("trade_journal_form",clear_on_submit=True):
+        j1,j2,j3=st.columns(3)
+        j_symbol=j1.text_input("Ticker",value=symbol).strip().upper()
+        j_side=j2.selectbox("Side",["BUY","SELL"])
+        j_date=j3.date_input("Trade date")
+        j4,j5,j6=st.columns(3)
+        j_entry=j4.number_input("Entry price (₹)",min_value=0.0,value=float(price),step=1.0)
+        j_qty=j5.number_input("Quantity",min_value=1,value=1,step=1)
+        j_exit=j6.number_input("Exit price (₹; 0 if open)",min_value=0.0,value=0.0,step=1.0)
+        j_reason=st.text_input("Reason / setup")
+        j_notes=st.text_area("Notes / lessons learned")
+        submitted=st.form_submit_button("Add trade to journal")
+    if submitted:
+        if not j_symbol or j_entry<=0:
+            st.error("Enter a ticker and a valid entry price.")
+        else:
+            pnl=(j_exit-j_entry)*j_qty if j_exit>0 else np.nan
+            if j_side=="SELL" and pd.notna(pnl): pnl=-pnl
+            st.session_state["trade_journal_rows"].append({"Date":str(j_date),"Ticker":j_symbol,"Side":j_side,"Entry ₹":j_entry,"Quantity":int(j_qty),"Exit ₹":j_exit if j_exit>0 else "Open","Realized P/L ₹":round(pnl,2) if pd.notna(pnl) else "Open","Reason":j_reason,"Notes":j_notes})
+            st.success("Trade added to this session's journal.")
+    journal=pd.DataFrame(st.session_state["trade_journal_rows"])
+    if not journal.empty:
+        st.dataframe(journal,use_container_width=True,hide_index=True)
+        st.download_button("Download trade journal CSV",journal.to_csv(index=False).encode("utf-8"),"trade_journal.csv","text/csv")
+        if st.button("Clear current session journal"):
+            st.session_state["trade_journal_rows"]=[]
+            st.rerun()
+    else:
+        st.info("No trades recorded yet. Add a trade above or use paper trades to practise.")
+
+with tabs[17]:
+    st.subheader("🎯 Risk Planner: position size, stop-loss and target")
+    st.caption("A planning calculator only. It does not identify a guaranteed entry point.")
+    p1,p2,p3=st.columns(3)
+    capital=p1.number_input("Account capital (₹)",min_value=1000.0,value=100000.0,step=5000.0)
+    risk_pct=p2.slider("Maximum planned risk per trade (%)",0.25,5.0,1.0,0.25)
+    entry=p3.number_input("Hypothetical entry price (₹)",min_value=0.01,value=float(price),step=1.0)
+    p4,p5=st.columns(2)
+    stop_pct=p4.slider("Stop-loss distance (%)",0.5,20.0,5.0,0.5)
+    reward_risk=p5.selectbox("Target reward:risk ratio",[1.0,1.5,2.0,3.0],index=2)
+    risk_budget=capital*risk_pct/100
+    stop=entry*(1-stop_pct/100)
+    per_share_risk=entry-stop
+    qty=max(0,int(risk_budget/per_share_risk)) if per_share_risk>0 else 0
+    target=entry+per_share_risk*reward_risk
+    r1,r2,r3,r4=st.columns(4)
+    r1.metric("Planned risk budget",money(risk_budget))
+    r2.metric("Illustrative stop-loss",money(stop))
+    r3.metric("Illustrative target",money(target))
+    r4.metric("Position size (shares)",str(qty))
+    st.write(f"Approximate position value: **{money(qty*entry)}**. Approximate loss at stop, before costs/gaps: **{money(qty*per_share_risk)}**.")
+    st.warning("Stop orders may execute worse than the stop price during gaps or illiquid conditions. Position sizing does not remove investment risk.")
 
 st.divider()
 st.caption(f"Latest price observation: {df.index[-1].date()} | Data: Yahoo Finance via yfinance | Educational use only.")
