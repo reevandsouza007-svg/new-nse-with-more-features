@@ -130,7 +130,7 @@ if len(raw)<30: st.error("Not enough historical data."); st.stop()
 df=add_indicators(raw); close=df.Close; price=float(close.iloc[-1]); ret=close.pct_change().dropna()
 info=fundamentals(symbol)
 
-tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner"])
+tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner","Swing Trading Signal"])
 
 with tabs[0]:
     st.subheader(f"{symbol} overview")
@@ -728,3 +728,80 @@ with tabs[17]:
 
 st.divider()
 st.caption(f"Latest price observation: {df.index[-1].date()} | Data: Yahoo Finance via yfinance | Educational use only.")
+
+
+with tabs[18]:
+    st.subheader("📅 Swing Trading Signal — hold for days to weeks")
+    st.caption("Rule-based research for a multi-day holding period. It cannot know tomorrow's price or guarantee a profitable trade.")
+
+    latest = df.iloc[-1]
+    prev_close = float(df["Close"].iloc[-2])
+    current_close = float(latest["Close"])
+    rsi_now = latest.get("RSI 14", np.nan)
+    macd_hist = latest.get("MACD Histogram", np.nan)
+    ema20 = latest.get("EMA 20", np.nan)
+    ema50 = latest.get("EMA 50", np.nan)
+    sma50 = latest.get("SMA 50", np.nan)
+    adx_now = latest.get("ADX 14", np.nan)
+
+    # ATR for illustrative risk levels
+    tr = pd.concat([
+        df["High"] - df["Low"],
+        (df["High"] - df["Close"].shift()).abs(),
+        (df["Low"] - df["Close"].shift()).abs()
+    ], axis=1).max(axis=1)
+    atr_now = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean().iloc[-1]
+
+    bullish = {
+        "EMA 20 above EMA 50": bool(pd.notna(ema20) and pd.notna(ema50) and ema20 > ema50),
+        "Close above SMA 50": bool(pd.notna(sma50) and current_close > sma50),
+        "MACD histogram positive": bool(pd.notna(macd_hist) and macd_hist > 0),
+        "RSI between 50 and 70": bool(pd.notna(rsi_now) and 50 <= rsi_now <= 70),
+        "ADX above 20": bool(pd.notna(adx_now) and adx_now > 20),
+    }
+    score = sum(bullish.values())
+    if score >= 4 and pd.notna(rsi_now) and rsi_now < 70:
+        signal = "POTENTIAL SWING BUY SETUP"
+        message = "Several bullish conditions align. Check liquidity, news, market conditions and risk/reward before acting."
+        st.success(f"**{signal}** — {message}")
+    elif score <= 1 or (pd.notna(rsi_now) and rsi_now > 75):
+        signal = "CAUTION / AVOID CHASING"
+        message = "The setup is weak or potentially stretched. Waiting for clearer confirmation may be prudent."
+        st.warning(f"**{signal}** — {message}")
+    else:
+        signal = "WAIT FOR CONFIRMATION"
+        message = "The indicators are mixed. There is no strong alignment under these rules."
+        st.info(f"**{signal}** — {message}")
+
+    st.markdown("### Signal details")
+    st.write(f"Latest available candle: **{df.index[-1].strftime('%Y-%m-%d')}**")
+    st.write(f"Bullish conditions met: **{score}/5**")
+    st.dataframe(pd.DataFrame([{"Condition": k, "Status": "Met" if v else "Not met"} for k, v in bullish.items()]),
+                 use_container_width=True, hide_index=True)
+
+    st.markdown("### Illustrative trade planning")
+    risk_pct = st.slider("Risk budget (% of trading capital)", min_value=0.25, max_value=2.0, value=1.0, step=0.25)
+    capital = st.number_input("Trading capital (₹)", min_value=1000.0, value=100000.0, step=5000.0)
+    stop_atr = st.slider("Stop-loss distance (ATR multiple)", min_value=1.0, max_value=3.0, value=1.5, step=0.25)
+    target_multiple = st.slider("Target risk/reward multiple", min_value=1.0, max_value=4.0, value=2.0, step=0.5)
+    if pd.notna(atr_now) and atr_now > 0:
+        stop_price = max(0.01, current_close - stop_atr * float(atr_now))
+        risk_per_share = current_close - stop_price
+        target_price = current_close + target_multiple * risk_per_share
+        risk_budget = capital * risk_pct / 100
+        shares_by_risk = int(risk_budget // risk_per_share) if risk_per_share > 0 else 0
+        shares_by_cash = int(capital // current_close) if current_close > 0 else 0
+        shares = max(0, min(shares_by_risk, shares_by_cash))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Reference price", f"₹{current_close:,.2f}")
+        c2.metric("Illustrative stop-loss", f"₹{stop_price:,.2f}", f"-{(current_close-stop_price)/current_close*100:.2f}%")
+        c3.metric("Illustrative target", f"₹{target_price:,.2f}", f"+{(target_price/current_close-1)*100:.2f}%")
+        c4.metric("Estimated quantity", f"{shares:,} shares")
+        st.caption(f"Risk budget: ₹{risk_budget:,.2f}. Quantity is limited by both risk budget and available capital; actual fills, gaps, costs and slippage can change outcomes.")
+    else:
+        st.warning("Not enough data to calculate ATR-based planning levels.")
+
+    st.markdown("### Next trading session outlook")
+    st.write("**Outlook:** " + ("Bullish conditions may continue if price and volume confirm." if score >= 4 else "Mixed/uncertain; wait for the next completed candle to confirm." if score in [2,3] else "Bearish or weak conditions dominate under this rule set."))
+    st.caption("This is a conditional outlook, not a prediction of tomorrow's price. Signals use historical daily data and may be delayed or incomplete during market hours.")
+
