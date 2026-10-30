@@ -131,7 +131,7 @@ with st.sidebar:
     symbol=st.text_input("NSE ticker","RELIANCE").strip().upper()
     period=st.selectbox("Historical data",["6mo","1y","2y","5y","10y"],index=2)
     chart_days=st.selectbox("Chart window",[60,120,252,500,1000],index=2,format_func=lambda n:f"Last {n} trading days")
-    st.caption("Examples: RELIANCE, TCS, INFY, HDFCBANK, SBIN")
+    st.caption("Examples: RELIANCE, TCS, INFY, HDFCBANK, ANTELOPUS, SBIN")
 
 if not symbol: st.stop()
 try: raw=history(symbol,period)
@@ -243,7 +243,7 @@ with tabs[1]:
 with tabs[2]:
     st.subheader("Separate indicator charts")
     chosen=st.selectbox("Choose indicator",[
-        "RSI 14","MACD","ADX 14","ATR 14","Daily return (%)","Bollinger Bands",
+        "RSI 14","MACD","MA","ADX 14","ATR 14","Daily return (%)","Bollinger Bands",
         "Stochastic","ROC 12","CCI 20","Williams %R","MFI 14","OBV",
         "VWAP 20","Donchian Channels","Keltner Channels","Ichimoku","Volume"
     ])
