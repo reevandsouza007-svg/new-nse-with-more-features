@@ -130,7 +130,7 @@ if len(raw)<30: st.error("Not enough historical data."); st.stop()
 df=add_indicators(raw); close=df.Close; price=float(close.iloc[-1]); ret=close.pct_change().dropna()
 info=fundamentals(symbol)
 
-tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner","Swing Trading Signal"])
+tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner","Swing Trading Signal","Relative Strength Ranking","Walk-Forward Test","Sector Rotation","Price Alert Builder"])
 
 with tabs[0]:
     st.subheader(f"{symbol} overview")
@@ -805,3 +805,113 @@ with tabs[18]:
     st.write("**Outlook:** " + ("Bullish conditions may continue if price and volume confirm." if score >= 4 else "Mixed/uncertain; wait for the next completed candle to confirm." if score in [2,3] else "Bearish or weak conditions dominate under this rule set."))
     st.caption("This is a conditional outlook, not a prediction of tomorrow's price. Signals use historical daily data and may be delayed or incomplete during market hours.")
 
+
+
+with tabs[19]:
+    st.subheader("📈 Relative Strength Ranking")
+    st.caption("Ranks a chosen list by historical performance versus the Nifty 50. This is backward-looking, not a prediction.")
+    rs_text = st.text_area("Tickers to compare (comma-separated)", "RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK,SBIN,ITC,LT,BHARTIARTL,SUNPHARMA", key="rs_universe")
+    if st.button("Rank stocks", key="rank_rs"):
+        tickers = list(dict.fromkeys(x.strip().upper() for x in rs_text.split(",") if x.strip()))[:30]
+        try:
+            benchmark = history("^NSEI", "1y")
+            if benchmark.empty:
+                st.warning("Nifty 50 benchmark data is unavailable right now.")
+            else:
+                bclose = benchmark["Close"].dropna()
+                rows=[]
+                for sym in tickers:
+                    try:
+                        hist = history(sym, "1y")
+                        c = hist["Close"].dropna()
+                        if len(c) < 25: continue
+                        row={"Ticker":sym,"Latest price":float(c.iloc[-1])}
+                        for label,days in [("1M return %",21),("3M return %",63),("6M return %",126)]:
+                            row[label]=float((c.iloc[-1]/c.iloc[-min(days+1,len(c))]-1)*100)
+                            bdays=min(days+1,len(bclose))
+                            bret=float((bclose.iloc[-1]/bclose.iloc[-bdays]-1)*100)
+                            row[label.replace("return","relative vs Nifty")]=row[label]-bret
+                        rows.append(row)
+                    except Exception:
+                        continue
+                if rows:
+                    result=pd.DataFrame(rows).sort_values("3M relative vs Nifty %",ascending=False)
+                    st.dataframe(result.round(2),use_container_width=True,hide_index=True)
+                    st.download_button("Download ranking CSV",result.to_csv(index=False).encode(),"relative_strength_ranking.csv","text/csv")
+                else: st.warning("No valid ticker data returned. Check ticker symbols or try again later.")
+        except Exception as e: st.error(f"Could not retrieve benchmark data: {e}")
+
+with tabs[20]:
+    st.subheader("🧪 Walk-Forward Test")
+    st.caption("A simple chronological split: build/inspect a rule on the earlier period, then evaluate the same fixed rule on later data. This is not an optimizer and does not guarantee future performance.")
+    split_pct=st.slider("Earlier period used for development (%)",50,85,70,5,key="wf_split")
+    wf_strategy=st.selectbox("Strategy",["EMA crossover (20/50)","MACD crossover","Trend confirmation (EMA + MACD + RSI)"],key="wf_strategy")
+    wf_fee=st.slider("Estimated cost per position change (basis points)",0,50,10,key="wf_fee")
+    wdf=df.dropna(subset=["Close"]).copy()
+    split=max(30,min(len(wdf)-10,int(len(wdf)*split_pct/100)))
+    if len(wdf)<80:
+        st.warning("Select at least 80 trading days for this basic split test.")
+    else:
+        if wf_strategy=="EMA crossover (20/50)": sig=(wdf["EMA 20"]>wdf["EMA 50"]).astype(float)
+        elif wf_strategy=="MACD crossover": sig=(wdf["MACD"]>wdf["MACD Signal"]).astype(float)
+        else: sig=((wdf["EMA 20"]>wdf["EMA 50"])&(wdf["MACD"]>wdf["MACD Signal"])&(wdf["RSI 14"]>50)).astype(float)
+        pos=sig.shift(1).fillna(0)
+        daily=wdf["Close"].pct_change().fillna(0)
+        strat=pos*daily-pos.diff().abs().fillna(pos.abs())*(wf_fee/10000)
+        test_idx=wdf.index[split:]
+        test_returns=strat.loc[test_idx]
+        bench_returns=daily.loc[test_idx]
+        strat_eq=(1+test_returns).cumprod()
+        bench_eq=(1+bench_returns).cumprod()
+        test_dd=(strat_eq/strat_eq.cummax()-1).min()*100
+        st.write(f"Development period: **{wdf.index[0].date()} to {wdf.index[split-1].date()}**")
+        st.write(f"Test period: **{wdf.index[split].date()} to {wdf.index[-1].date()}**")
+        m1,m2,m3=st.columns(3)
+        m1.metric("Strategy test return",f"{(strat_eq.iloc[-1]-1)*100:+.2f}%")
+        m2.metric("Buy & hold test return",f"{(bench_eq.iloc[-1]-1)*100:+.2f}%")
+        m3.metric("Test-period max drawdown",f"{test_dd:.2f}%")
+        fig=go.Figure()
+        fig.add_trace(go.Scatter(x=strat_eq.index,y=(strat_eq-1)*100,name="Strategy test return %"))
+        fig.add_trace(go.Scatter(x=bench_eq.index,y=(bench_eq-1)*100,name="Buy & hold test return %"))
+        fig.update_layout(title="Out-of-sample test period",xaxis_title="Date",yaxis_title="Cumulative return (%)",template="plotly_dark",height=400)
+        st.plotly_chart(fig,use_container_width=True)
+        st.warning("This is a single holdout split, not full rolling walk-forward validation. Test more stocks and periods, and include realistic slippage, taxes and execution rules.")
+
+with tabs[21]:
+    st.subheader("🌐 Sector Rotation Dashboard")
+    st.caption("Attempts to compare selected Yahoo Finance sector-index symbols. Some index symbols may be unavailable; missing data is reported rather than fabricated.")
+    sectors={"Nifty Bank":"^NSEBANK","Nifty IT":"^CNXIT","Nifty Pharma":"^CNXPHARMA","Nifty Auto":"^CNXAUTO","Nifty Metal":"^CNXMETAL","Nifty Energy":"^CNXENERGY","Nifty FMCG":"^CNXFMCG","Nifty Realty":"^CNXREALTY"}
+    if st.button("Load sector performance",key="load_sector_perf"):
+        sector_rows=[]
+        progress=st.progress(0)
+        for i,(name,sym) in enumerate(sectors.items()):
+            try:
+                hist=history(sym,"6mo")
+                c=hist["Close"].dropna()
+                if len(c)>22:
+                    sector_rows.append({"Sector index":name,"Symbol":sym,"1M return %":(c.iloc[-1]/c.iloc[-min(22,len(c))]-1)*100,"3M return %":(c.iloc[-1]/c.iloc[-min(64,len(c))]-1)*100})
+            except Exception: pass
+            progress.progress((i+1)/len(sectors))
+        if sector_rows:
+            sdf=pd.DataFrame(sector_rows).sort_values("3M return %",ascending=False)
+            st.dataframe(sdf.round(2),use_container_width=True,hide_index=True)
+            fig=px.bar(sdf.sort_values("3M return %"),x="3M return %",y="Sector index",orientation="h",title="Sector index performance over approx. 3 months")
+            fig.update_layout(template="plotly_dark",height=430)
+            st.plotly_chart(fig,use_container_width=True)
+            st.download_button("Download sector data",sdf.to_csv(index=False).encode(),"sector_rotation.csv","text/csv")
+        else: st.warning("No sector-index data was returned. Provider symbols may change or be unsupported.")
+
+with tabs[22]:
+    st.subheader("🔔 Price Alert Builder")
+    st.caption("Builds a threshold alert for this session. Streamlit Community Cloud does not send push notifications from this widget; keep the app open and refresh to re-check.")
+    alert_kind=st.selectbox("Alert condition",["Price rises above level","Price falls below level","RSI crosses above 50 zone (current check)","RSI falls below 30 zone (current check)"],key="alert_kind")
+    threshold=st.number_input("Price threshold (₹)",min_value=0.0,value=float(round(price,2)),step=1.0,key="alert_threshold")
+    if alert_kind=="Price rises above level": triggered=price>threshold
+    elif alert_kind=="Price falls below level": triggered=price<threshold
+    elif alert_kind=="RSI crosses above 50 zone (current check)": triggered=pd.notna(df["RSI 14"].iloc[-1]) and df["RSI 14"].iloc[-1]>50
+    else: triggered=pd.notna(df["RSI 14"].iloc[-1]) and df["RSI 14"].iloc[-1]<30
+    st.metric("Latest available price",money(price))
+    st.metric("Latest RSI (14)",f"{df['RSI 14'].iloc[-1]:.2f}" if pd.notna(df["RSI 14"].iloc[-1]) else "N/A")
+    if triggered: st.success("ALERT CONDITION MET on the latest available data.")
+    else: st.info("Alert condition is not met on the latest available data.")
+    st.caption(f"Latest available candle: {df.index[-1].date()}. Data may be delayed; this is not a continuously running alert service.")
