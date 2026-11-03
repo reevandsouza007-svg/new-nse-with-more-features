@@ -9,51 +9,6 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="NSE Terminal", page_icon="📈", layout="wide")
 st_autorefresh(interval=1_000, key="nse_terminal_auto_refresh")
 
-# Six selectable stock-market backgrounds. The selected image is applied to the app page.
-BACKGROUND_OPTIONS = {
-    "1. Professional Trading Screens": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=2200&q=85",
-    "2. Candlestick Charts": "https://images.unsplash.com/photo-1642790106117-e829e14a795f?auto=format&fit=crop&w=2200&q=85",
-    "3. Futuristic Financial Technology": "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=2200&q=85",
-    "4. Dark Stock Market Dashboard": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=2200&q=85",
-    "5. Bull and Bear Market": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=2200&q=85",
-    "6. Minimalist Financial Charts": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=2200&q=85",
-}
-
-with st.sidebar:
-    st.markdown("## ⚙️ Appearance Settings")
-    selected_background = st.selectbox(
-        "Choose app background",
-        ["Default Dark Background"] + list(BACKGROUND_OPTIONS.keys()),
-        index=0,
-        key="app_background_choice",
-    )
-    background_opacity = st.slider(
-        "Background dark overlay", min_value=20, max_value=90, value=68,
-        help="Increase this value to make text and charts easier to read.",
-        key="app_background_overlay",
-    )
-
-if selected_background == "Default Dark Background":
-    app_background_css = "background: #0b0b0b;"
-else:
-    selected_image_url = BACKGROUND_OPTIONS[selected_background]
-    app_background_css = (
-        "background-image: linear-gradient(rgba(5, 8, 15, "
-        + str(background_opacity / 100)
-        + "), rgba(5, 8, 15, " + str(background_opacity / 100)
-        + ")), url('" + selected_image_url + "');"
-        "background-size: cover; background-position: center; background-attachment: fixed;"
-    )
-
-st.markdown(f"""
-<style>
-.stApp {{ {app_background_css} color: #f5f5f5; }}
-.block-container {{ padding-top: 1.2rem; max-width: 1450px; }}
-[data-testid="stMetric"] {{ background: rgba(18, 22, 30, 0.82); border: 1px solid rgba(255,255,255,0.16); padding: 12px; border-radius: 10px; }}
-[data-testid="stSidebar"] {{ background: rgba(8, 12, 20, 0.96); }}
-[data-testid="stHeader"] {{ background: rgba(0,0,0,0); }}
-</style>
-""", unsafe_allow_html=True)
 st.title("📈 NSE Terminal")
 st.caption("NSE research cockpit | 35+ indicators, strategy confluence, support/resistance, volume radar, scenarios, risk and portfolio")
 st.info("Educational tool only. Historical data and simulations cannot guarantee future prices. Not financial advice.")
@@ -171,6 +126,62 @@ with st.sidebar:
     period=st.selectbox("Historical data",["6mo","1y","2y","5y","10y"],index=2)
     chart_days=st.selectbox("Chart window",[60,120,252,500,1000],index=2,format_func=lambda n:f"Last {n} trading days")
     st.caption("Examples: RELIANCE, TCS, INFY, HDFCBANK, SBIN")
+    st.subheader("🎨 Appearance")
+    background_choice = st.selectbox(
+        "Choose app background",
+        [
+            "Default Dark Background",
+            "1. Professional Trading Screens",
+            "2. Candlestick Charts",
+            "3. Futuristic Financial Technology",
+            "4. Dark Stock Market Dashboard",
+            "5. Bull and Bear Market",
+            "6. Minimalist Financial Charts",
+        ],
+        key="app_background_choice",
+    )
+
+
+# Six selectable stock-market background images.
+BACKGROUND_IMAGES = {
+    "1. Professional Trading Screens": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=2200&q=85",
+    "2. Candlestick Charts": "https://images.unsplash.com/photo-1642790106117-e829e14a795f?auto=format&fit=crop&w=2200&q=85",
+    "3. Futuristic Financial Technology": "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=2200&q=85",
+    "4. Dark Stock Market Dashboard": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=2200&q=85",
+    "5. Bull and Bear Market": "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?auto=format&fit=crop&w=2200&q=85",
+    "6. Minimalist Financial Charts": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=2200&q=85",
+}
+
+selected_background = BACKGROUND_IMAGES.get(background_choice)
+if selected_background:
+    app_background_css = f"""
+    .stApp {{
+        background-image: linear-gradient(rgba(5, 9, 18, 0.84), rgba(5, 9, 18, 0.90)),
+                          url("{selected_background}");
+        background-position: center;
+        background-size: cover;
+        background-attachment: fixed;
+        color: #f5f5f5;
+    }}
+    """
+else:
+    app_background_css = ".stApp {background: #0b0b0b; color: #f5f5f5;}"
+
+st.markdown(f"""
+<style>
+{app_background_css}
+.block-container {{padding-top: 1.2rem; max-width: 1450px;}}
+[data-testid="stMetric"] {{
+    background: rgba(23, 23, 23, 0.88);
+    border: 1px solid rgba(180, 190, 210, 0.25);
+    padding: 12px;
+    border-radius: 10px;
+}}
+[data-testid="stSidebar"] {{
+    background: rgba(10, 14, 24, 0.94);
+}}
+</style>
+""", unsafe_allow_html=True)
 
 if not symbol: st.stop()
 try: raw=history(symbol,period)
