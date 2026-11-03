@@ -8,11 +8,50 @@ from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="NSE Terminal", page_icon="📈", layout="wide")
 st_autorefresh(interval=1_000, key="nse_terminal_auto_refresh")
-st.markdown("""
+
+# Six selectable stock-market backgrounds. The selected image is applied to the app page.
+BACKGROUND_OPTIONS = {
+    "1. Professional Trading Screens": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=2200&q=85",
+    "2. Candlestick Charts": "https://images.unsplash.com/photo-1642790106117-e829e14a795f?auto=format&fit=crop&w=2200&q=85",
+    "3. Futuristic Financial Technology": "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=2200&q=85",
+    "4. Dark Stock Market Dashboard": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=2200&q=85",
+    "5. Bull and Bear Market": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=2200&q=85",
+    "6. Minimalist Financial Charts": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=2200&q=85",
+}
+
+with st.sidebar:
+    st.markdown("## ⚙️ Appearance Settings")
+    selected_background = st.selectbox(
+        "Choose app background",
+        ["Default Dark Background"] + list(BACKGROUND_OPTIONS.keys()),
+        index=0,
+        key="app_background_choice",
+    )
+    background_opacity = st.slider(
+        "Background dark overlay", min_value=20, max_value=90, value=68,
+        help="Increase this value to make text and charts easier to read.",
+        key="app_background_overlay",
+    )
+
+if selected_background == "Default Dark Background":
+    app_background_css = "background: #0b0b0b;"
+else:
+    selected_image_url = BACKGROUND_OPTIONS[selected_background]
+    app_background_css = (
+        "background-image: linear-gradient(rgba(5, 8, 15, "
+        + str(background_opacity / 100)
+        + "), rgba(5, 8, 15, " + str(background_opacity / 100)
+        + ")), url('" + selected_image_url + "');"
+        "background-size: cover; background-position: center; background-attachment: fixed;"
+    )
+
+st.markdown(f"""
 <style>
-.stApp{background:#0b0b0b;color:#f5f5f5}
-.block-container{padding-top:1.2rem;max-width:1450px}
-[data-testid="stMetric"]{background:#171717;border:1px solid #303030;padding:12px;border-radius:10px}
+.stApp {{ {app_background_css} color: #f5f5f5; }}
+.block-container {{ padding-top: 1.2rem; max-width: 1450px; }}
+[data-testid="stMetric"] {{ background: rgba(18, 22, 30, 0.82); border: 1px solid rgba(255,255,255,0.16); padding: 12px; border-radius: 10px; }}
+[data-testid="stSidebar"] {{ background: rgba(8, 12, 20, 0.96); }}
+[data-testid="stHeader"] {{ background: rgba(0,0,0,0); }}
 </style>
 """, unsafe_allow_html=True)
 st.title("📈 NSE Terminal")
