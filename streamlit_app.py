@@ -6,11 +6,11 @@ import plotly.graph_objects as go
 import plotly.express as px
 from streamlit_autorefresh import st_autorefresh
 
-st.set_page_config(page_title="NSE Terminal", page_icon="📈", layout="wide")
-st_autorefresh(interval=1_000, key="nse_terminal_auto_refresh")
+st.set_page_config(page_title="NSE Terminal Pro", page_icon="📈", layout="wide")
+st_autorefresh(interval=30_000, key="nse_terminal_auto_refresh")
 
 st.title("📈 NSE Terminal")
-st.caption("NSE research cockpit | 35+ indicators, strategy confluence, support/resistance, volume radar, scenarios, risk and portfolio")
+st.caption("NSE TERMINAL PRO  |  MARKET DATA • TECHNICALS • FUNDAMENTALS • PORTFOLIO INTELLIGENCE")
 st.info("Educational tool only. Historical data and simulations cannot guarantee future prices. Not financial advice.")
 
 def ticker(s):
@@ -170,7 +170,14 @@ else:
 st.markdown(f"""
 <style>
 {app_background_css}
-.block-container {{padding-top: 1.2rem; max-width: 1450px;}}
+.block-container {{padding-top: 1.2rem; max-width: 1650px;}}
+[data-testid="stAppViewContainer"] {{background-color: rgba(5, 9, 18, 0.10);}}
+[data-testid="stSidebar"] {{border-right: 1px solid rgba(255,145,0,0.35);}}
+h1, h2, h3 {{letter-spacing: .2px;}}
+.stTabs [data-baseweb="tab-list"] {{gap: 5px; border-bottom: 1px solid rgba(255,145,0,.45);}}
+.stTabs [data-baseweb="tab"] {{background: rgba(12,18,28,.72); border-radius: 5px 5px 0 0; padding: 8px 12px;}}
+.stTabs [aria-selected="true"] {{border-bottom: 2px solid #ff9800; color: #ffb74d;}}
+[data-testid="stMetric"] {{border-top: 2px solid rgba(255,152,0,.55);}}
 [data-testid="stMetric"] {{
     background: rgba(23, 23, 23, 0.88);
     border: 1px solid rgba(180, 190, 210, 0.25);
@@ -197,7 +204,7 @@ price=float(intraday_price if intraday_price is not None else daily_close)
 price_source="Yahoo Finance intraday quote (may be delayed)" if intraday_price is not None else "Latest available daily close (intraday quote unavailable)"
 info=fundamentals(symbol)
 
-tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner","Swing Trading Signal","Relative Strength Ranking","Walk-Forward Test","Sector Rotation","Price Alert Builder"])
+tabs=st.tabs(["Overview","Clean Chart","Indicators","Strategy Lab","Growth / Loss","Risk","Compare","Watchlist","Portfolio","Fundamentals","News","Backtesting","Stock Scanner","Smart Score","Market Regime","Strategy Leaderboard","Trade Journal","Risk Planner","Swing Trading Signal","Relative Strength Ranking","Walk-Forward Test","Sector Rotation","Price Alert Builder","AI Stock Analyst","Candlestick Patterns","Financial Health Score","Dividend Analysis","Portfolio Optimizer","FII/DII Tracker","Options Analytics","Correlation Matrix","Economic Calendar","AI Research Report"])
 
 with tabs[0]:
     st.subheader(f"{symbol} overview")
@@ -983,3 +990,229 @@ with tabs[22]:
     if triggered: st.success("ALERT CONDITION MET on the latest available data.")
     else: st.info("Alert condition is not met on the latest available data.")
     st.caption(f"Latest available candle: {df.index[-1].date()}. Data may be delayed; this is not a continuously running alert service.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW RESEARCH & FINTECH MODULES (educational decision-support; provider limits
+# are disclosed rather than presenting unavailable data as live facts).
+# ─────────────────────────────────────────────────────────────────────────────
+
+with tabs[23]:
+    st.subheader("🤖 AI Stock Analyst")
+    st.caption("Explainable, rule-based analyst assistant. It does not use a large-language model or predict guaranteed returns.")
+    last = df.iloc[-1]
+    rsi_now = float(last["RSI 14"]) if pd.notna(last["RSI 14"]) else np.nan
+    macd_now = float(last["MACD Histogram"]) if pd.notna(last["MACD Histogram"]) else 0.0
+    trend_up = bool(last["EMA 20"] > last["EMA 50"]) if pd.notna(last["EMA 20"]) and pd.notna(last["EMA 50"]) else False
+    above_sma = bool(price > last["SMA 50"]) if pd.notna(last["SMA 50"]) else False
+    adx_now = float(last["ADX 14"]) if pd.notna(last["ADX 14"]) else np.nan
+    analyst_score = sum([trend_up, macd_now > 0, above_sma, pd.notna(rsi_now) and 50 <= rsi_now <= 70, pd.notna(adx_now) and adx_now >= 20])
+    a,b,c = st.columns(3)
+    a.metric("Technical score", f"{analyst_score}/5")
+    b.metric("Trend", "Uptrend" if trend_up else "Not confirmed")
+    c.metric("Momentum", "Positive" if macd_now > 0 else "Negative / flat")
+    if analyst_score >= 4:
+        st.success("Rule-based view: bullish technical setup. Check valuation, event risk and position sizing before any decision.")
+    elif analyst_score <= 1:
+        st.error("Rule-based view: weak technical setup. Avoid treating a low score as a short-sale instruction.")
+    else:
+        st.warning("Rule-based view: mixed signals. Consider waiting for clearer confirmation.")
+    st.markdown("**Why this assessment?**")
+    st.write({"EMA 20 above EMA 50": trend_up, "MACD histogram positive": macd_now > 0,
+              "Price above SMA 50": above_sma, "RSI in 50–70 zone": bool(pd.notna(rsi_now) and 50 <= rsi_now <= 70),
+              "ADX at least 20": bool(pd.notna(adx_now) and adx_now >= 20)})
+    st.info("This is transparent indicator-based decision support, not personalised investment advice or a true generative-AI forecast.")
+
+with tabs[24]:
+    st.subheader("🕯️ Candlestick Pattern Recognition")
+    st.caption("Scans the latest daily candles for basic textbook patterns. Patterns need context and are not standalone trade signals.")
+    candle = df.dropna(subset=["Open","High","Low","Close"]).copy()
+    candle["Body"] = (candle["Close"]-candle["Open"]).abs()
+    candle["Range"] = (candle["High"]-candle["Low"]).replace(0,np.nan)
+    candle["Upper wick"] = candle["High"]-candle[["Open","Close"]].max(axis=1)
+    candle["Lower wick"] = candle[["Open","Close"]].min(axis=1)-candle["Low"]
+    if len(candle) >= 2:
+        x, prevc = candle.iloc[-1], candle.iloc[-2]
+        patterns=[]
+        if x["Body"]/x["Range"] < 0.10: patterns.append("Doji: open and close are very close")
+        if x["Lower wick"] >= 2*max(x["Body"],0.000001) and x["Upper wick"] <= max(x["Body"],0.000001): patterns.append("Hammer-like candle: long lower wick")
+        if x["Upper wick"] >= 2*max(x["Body"],0.000001) and x["Lower wick"] <= max(x["Body"],0.000001): patterns.append("Shooting-star-like candle: long upper wick")
+        bullish_engulf = (prevc["Close"] < prevc["Open"] and x["Close"] > x["Open"] and x["Open"] <= prevc["Close"] and x["Close"] >= prevc["Open"])
+        bearish_engulf = (prevc["Close"] > prevc["Open"] and x["Close"] < x["Open"] and x["Open"] >= prevc["Close"] and x["Close"] <= prevc["Open"])
+        if bullish_engulf: patterns.append("Bullish engulfing: current real body covers prior body")
+        if bearish_engulf: patterns.append("Bearish engulfing: current real body covers prior body")
+        if not patterns: st.info("No selected basic pattern detected in the latest candle.")
+        else:
+            for pattern in patterns: st.success(pattern)
+        st.write(f"Latest candle date: **{candle.index[-1].date()}**")
+        st.dataframe(candle.tail(10)[["Open","High","Low","Close","Body","Upper wick","Lower wick"]].round(2),use_container_width=True)
+    else: st.warning("Not enough candles to scan.")
+
+with tabs[25]:
+    st.subheader("🏥 Financial Health Score")
+    st.caption("A simple 0–100 screening score using available Yahoo Finance fundamentals. Missing fields are excluded; it is not a credit rating.")
+    f=info or {}
+    checks=[("Positive profit margin", f.get("profitMargins"), lambda v:v>0),
+            ("Positive return on equity", f.get("returnOnEquity"), lambda v:v>0),
+            ("Debt/equity below 1", f.get("debtToEquity"), lambda v:v<100),
+            ("Positive operating cash flow", f.get("operatingCashflow"), lambda v:v>0),
+            ("Positive revenue growth", f.get("revenueGrowth"), lambda v:v>0),
+            ("Current ratio above 1", f.get("currentRatio"), lambda v:v>1)]
+    known=[(name,val,fn) for name,val,fn in checks if val is not None and pd.notna(val)]
+    if known:
+        passed=sum(bool(fn(float(val))) for _,val,fn in known)
+        score=round(passed/len(known)*100)
+        st.metric("Available-data health score",f"{score}/100",f"{passed} of {len(known)} checks passed")
+        rows=[]
+        for name,val,fn in known: rows.append({"Test":name,"Reported value":val,"Result":"Pass" if fn(float(val)) else "Needs attention"})
+        st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+    else: st.warning("Fundamental fields are unavailable for this ticker from the current data provider.")
+    st.caption("Data can be incomplete, stale or mapped differently for Indian listings. Verify figures from company filings.")
+
+with tabs[26]:
+    st.subheader("💰 Dividend Analysis")
+    try:
+        div=yf.Ticker(ticker(symbol)).dividends
+        if div is None or div.empty: st.info("No dividend history was returned by Yahoo Finance for this ticker.")
+        else:
+            div=div.sort_index()
+            d1,d2=st.columns(2)
+            d1.metric("Latest dividend",money(div.iloc[-1]))
+            d2.metric("Total dividends in returned history",money(div.sum()))
+            st.line_chart(div.rename("Dividend per share"),use_container_width=True)
+            annual=div.resample("YE").sum().rename("Annual dividend per share").to_frame()
+            st.dataframe(annual.tail(10).round(3),use_container_width=True)
+            st.caption("Dividend yield and payout depend on current price, tax and corporate actions. Historical dividends do not guarantee future payments.")
+    except Exception as e: st.warning(f"Dividend data could not be loaded: {e}")
+
+with tabs[27]:
+    st.subheader("⚖️ Portfolio Optimizer")
+    st.caption("Illustrative long-only allocation using inverse historical volatility. This is a risk-balancing heuristic, not a guaranteed optimal portfolio.")
+    opt_text=st.text_input("Enter 3–10 NSE tickers separated by commas",f"{symbol}, TCS, INFY",key="opt_tickers")
+    if st.button("Calculate illustrative allocation",key="run_port_opt"):
+        syms=list(dict.fromkeys([x.strip().upper() for x in opt_text.split(",") if x.strip()]))[:10]
+        returns={}
+        with st.spinner("Loading price histories..."):
+            for sym in syms:
+                try:
+                    hst=history(sym,"2y")["Close"].dropna()
+                    r=hst.pct_change().dropna()
+                    if len(r)>60: returns[sym]=r
+                except Exception: pass
+        if len(returns)<2: st.warning("At least two tickers with sufficient historical data are required.")
+        else:
+            ret_df=pd.DataFrame(returns).dropna()
+            vol=ret_df.std()*np.sqrt(252)
+            inv=1/vol.replace(0,np.nan)
+            weights=(inv/inv.sum()).dropna()
+            out=pd.DataFrame({"Ticker":weights.index,"Illustrative weight %":weights.values*100,"Annualised historical volatility %":vol[weights.index].values*100})
+            st.dataframe(out.round(2),use_container_width=True,hide_index=True)
+            fig=px.pie(out,names="Ticker",values="Illustrative weight %",hole=.45,title="Inverse-volatility allocation")
+            fig.update_layout(template="plotly_dark")
+            st.plotly_chart(fig,use_container_width=True)
+            st.caption("Uses aligned daily returns and inverse volatility only. It does not account for expected returns, correlations in the weighting rule, liquidity, taxes or your personal risk profile.")
+
+with tabs[28]:
+    st.subheader("🏦 FII / DII Activity Tracker")
+    st.caption("Enter figures from an official NSE/NSDL/CDSL source or upload a CSV. This app does not currently fetch a verified live FII/DII feed.")
+    uploaded=st.file_uploader("Upload CSV with Date, FII Net (₹ Cr), DII Net (₹ Cr)",type=["csv"],key="fiidii_csv")
+    if uploaded is not None:
+        try:
+            flow=pd.read_csv(uploaded)
+            required=["Date","FII Net (₹ Cr)","DII Net (₹ Cr)"]
+            if all(col in flow.columns for col in required):
+                flow["Date"]=pd.to_datetime(flow["Date"],errors="coerce")
+                flow=flow.dropna(subset=["Date"]).sort_values("Date")
+                st.dataframe(flow,use_container_width=True,hide_index=True)
+                if not flow.empty:
+                    st.metric("Latest combined net flow",f"₹{(flow.iloc[-1]['FII Net (₹ Cr)']+flow.iloc[-1]['DII Net (₹ Cr)']):,.2f} Cr")
+                    st.line_chart(flow.set_index("Date")[["FII Net (₹ Cr)","DII Net (₹ Cr)"]])
+            else: st.error("CSV needs these exact columns: Date, FII Net (₹ Cr), DII Net (₹ Cr).")
+        except Exception as e: st.error(f"Could not read CSV: {e}")
+    else:
+        st.info("No file uploaded. Use the sample template below to prepare your data.")
+        sample=pd.DataFrame([{"Date":"2026-11-03","FII Net (₹ Cr)":-500,"DII Net (₹ Cr)":650}])
+        st.download_button("Download CSV template",sample.to_csv(index=False).encode(),"fiidii_template.csv","text/csv")
+
+with tabs[29]:
+    st.subheader("📊 Options Analytics")
+    st.caption("Attempts to retrieve option-chain data through Yahoo Finance. NSE option-chain coverage may be unavailable or incomplete for many symbols.")
+    try:
+        opt_ticker=yf.Ticker(ticker(symbol))
+        expiries=opt_ticker.options
+        if not expiries: st.warning("No options expiries are available from this data provider for the selected ticker.")
+        else:
+            expiry=st.selectbox("Expiry",expiries,key="option_expiry")
+            chain=opt_ticker.option_chain(expiry)
+            calls=chain.calls.copy(); puts=chain.puts.copy()
+            call_oi=float(calls["openInterest"].fillna(0).sum()) if "openInterest" in calls else 0
+            put_oi=float(puts["openInterest"].fillna(0).sum()) if "openInterest" in puts else 0
+            pcr=put_oi/call_oi if call_oi else np.nan
+            q1,q2,q3=st.columns(3)
+            q1.metric("Call open interest",f"{call_oi:,.0f}")
+            q2.metric("Put open interest",f"{put_oi:,.0f}")
+            q3.metric("Put/Call OI ratio",f"{pcr:.2f}" if pd.notna(pcr) else "N/A")
+            st.write("Calls")
+            st.dataframe(calls.head(30),use_container_width=True,hide_index=True)
+            st.write("Puts")
+            st.dataframe(puts.head(30),use_container_width=True,hide_index=True)
+    except Exception as e: st.warning(f"Options data is not available for this ticker through Yahoo Finance: {e}")
+    st.info("PCR is descriptive, not a directional guarantee. Verify Indian index/stock option-chain data with an exchange-authorised source before use.")
+
+with tabs[30]:
+    st.subheader("🔗 Stock Correlation Matrix")
+    corr_text=st.text_input("Tickers separated by commas",f"{symbol}, TCS, INFY, HDFCBANK, ICICIBANK",key="corr_tickers")
+    if st.button("Build correlation matrix",key="build_corr"):
+        data={}
+        for sym in list(dict.fromkeys([x.strip().upper() for x in corr_text.split(",") if x.strip()]))[:12]:
+            try:
+                hst=history(sym,"1y")["Close"].dropna()
+                if len(hst)>30: data[sym]=hst.pct_change()
+            except Exception: pass
+        if len(data)>=2:
+            corr=pd.DataFrame(data).dropna().corr()
+            fig=px.imshow(corr,zmin=-1,zmax=1,color_continuous_scale="RdYlGn",text_auto=".2f",title="Daily-return correlation")
+            fig.update_layout(template="plotly_dark",height=600)
+            st.plotly_chart(fig,use_container_width=True)
+            st.dataframe(corr.round(3),use_container_width=True)
+        else: st.warning("At least two tickers with overlapping historical data are required.")
+    st.caption("Correlation measures how returns moved together historically. It does not establish causation or guarantee future diversification.")
+
+with tabs[31]:
+    st.subheader("🗓️ Economic Calendar")
+    st.caption("A personal event tracker. Events below are entered by you; this is not a verified live economic calendar.")
+    with st.form("economic_event_form"):
+        event_date=st.date_input("Event date")
+        event_name=st.text_input("Event name",placeholder="RBI policy / CPI / GDP release")
+        event_impact=st.selectbox("Potential impact",["High","Medium","Low"])
+        event_notes=st.text_input("Notes / official source")
+        submitted=st.form_submit_button("Add event")
+    if submitted and event_name.strip():
+        st.session_state.setdefault("economic_events",[]).append({"Date":str(event_date),"Event":event_name.strip(),"Impact":event_impact,"Notes":event_notes})
+    events=pd.DataFrame(st.session_state.get("economic_events",[]))
+    if not events.empty:
+        st.dataframe(events.sort_values("Date"),use_container_width=True,hide_index=True)
+        st.download_button("Download events CSV",events.to_csv(index=False).encode(),"economic_calendar.csv","text/csv")
+    else: st.info("No events added yet. Add RBI, inflation, GDP, budget or company-result dates and record their official source.")
+
+with tabs[32]:
+    st.subheader("📝 AI Research Report")
+    st.caption("Creates a structured, explainable draft from available price indicators and Yahoo Finance fundamentals. It is automated template analysis, not a generative-AI opinion or verified analyst report.")
+    f=info or {}
+    report_date=pd.Timestamp.now().strftime("%d %b %Y")
+    report_rsi=df["RSI 14"].iloc[-1]
+    report_macd=df["MACD Histogram"].iloc[-1]
+    report_trend="positive" if df["EMA 20"].iloc[-1]>df["EMA 50"].iloc[-1] else "not confirmed positive"
+    st.markdown(f"### {symbol} — Equity Research Snapshot")
+    st.write(f"**Generated:** {report_date}  |  **Latest available price:** {money(price)}  |  **Data date:** {df.index[-1].date()}")
+    st.markdown("**1. Business and valuation data**")
+    st.write(f"Company: {f.get('longName',symbol)}. Sector: {f.get('sector','Not available')}. Industry: {f.get('industry','Not available')}.")
+    st.write(f"Market capitalisation: {money(f.get('marketCap'))}. Trailing P/E: {f.get('trailingPE','Not available')}. Forward P/E: {f.get('forwardPE','Not available')}.")
+    st.markdown("**2. Technical view**")
+    st.write(f"The short-term EMA trend is {report_trend}. RSI (14): {report_rsi:.2f} if available; MACD histogram: {report_macd:.3f}.")
+    st.markdown("**3. Key risks and limitations**")
+    st.write("Market volatility, earnings changes, valuation risk, sector conditions, liquidity and data-provider delays should be reviewed. This report does not include a verified management assessment or forward cash-flow valuation.")
+    st.markdown("**4. Analyst conclusion**")
+    st.write("Use the technical signals as a screening starting point only. Verify the latest annual report, quarterly results, exchange disclosures and valuation assumptions before forming an investment view.")
+    report_text=(f"{symbol} — Equity Research Snapshot\nGenerated: {report_date}\nLatest available price: {money(price)}\nCompany: {f.get('longName',symbol)}\nSector: {f.get('sector','Not available')}\nMarket cap: {money(f.get('marketCap'))}\nTrailing P/E: {f.get('trailingPE','Not available')}\nForward P/E: {f.get('forwardPE','Not available')}\nRSI 14: {report_rsi}\nMACD histogram: {report_macd}\nEMA trend: {report_trend}\nLimitations: Data may be delayed/incomplete. Verify official filings. Educational use only; not investment advice.")
+    st.download_button("Download research snapshot TXT",report_text.encode(),f"{symbol.lower()}_research_snapshot.txt","text/plain")
+
