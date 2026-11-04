@@ -126,10 +126,8 @@ with st.sidebar:
     period=st.selectbox("Historical data",["6mo","1y","2y","5y","10y"],index=2)
     chart_days=st.selectbox("Chart window",[60,120,252,500,1000],index=2,format_func=lambda n:f"Last {n} trading days")
     st.caption("Examples: RELIANCE, TCS, INFY, HDFCBANK, SBIN")
-st.subheader("🎨 Appearance")
-st.success("BACKGROUND OPTION IS LOADING")
-
-background_choice = st.selectbox(
+    st.subheader("🎨 Appearance")
+    background_choice = st.selectbox(
         "Choose app background",
         [
             "Default Dark Background",
