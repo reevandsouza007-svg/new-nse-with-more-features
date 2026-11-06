@@ -1,6 +1,7 @@
-streamlit
+streamlit>=1.37.0
 streamlit-autorefresh
-yfinance
-pandas
-numpy
-plotly
+yfinance>=0.2.65
+pandas>=2.2.3
+numpy>=1.26.4
+plotly>=5.24.0
+pyarrow>=17.0.0
