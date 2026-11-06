@@ -17,13 +17,19 @@ def ticker(s):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def history(s, period="2y"):
-    return yf.Ticker(ticker(s)).history(period=period, auto_adjust=True)
+    # Explicit timeout prevents the app from appearing blank indefinitely
+    # when Yahoo Finance is slow or unreachable.
+    return yf.Ticker(ticker(s)).history(
+        period=period, auto_adjust=True, timeout=15
+    )
 
 @st.cache_data(ttl=10, show_spinner=False)
 def latest_intraday_snapshot(s):
     """Latest Yahoo 1-minute candle; Yahoo may delay/update only once per minute."""
     try:
-        intraday = yf.Ticker(ticker(s)).history(period="1d", interval="1m", auto_adjust=True)
+        intraday = yf.Ticker(ticker(s)).history(
+            period="1d", interval="1m", auto_adjust=True, timeout=12
+        )
         if intraday is not None and not intraday.empty:
             row = intraday.dropna(subset=["Close"]).iloc[-1]
             return {
@@ -41,7 +47,9 @@ def latest_intraday_snapshot(s):
 def latest_intraday_price(s):
     """Best-effort latest intraday quote from Yahoo Finance; may be delayed."""
     try:
-        intraday = yf.Ticker(ticker(s)).history(period="1d", interval="1m", auto_adjust=False)
+        intraday = yf.Ticker(ticker(s)).history(
+            period="1d", interval="1m", auto_adjust=False, timeout=12
+        )
         if intraday is not None and not intraday.empty:
             prices = intraday["Close"].dropna()
             if not prices.empty:
@@ -86,11 +94,3 @@ def add_indicators(df):
     d["ROC 12"] = c.pct_change(12) * 100
     low14 = l.rolling(14).min()
     high14 = h.rolling(14).max()
-    d["Stochastic %K"] = 100 * (c - low14) / (high14 - low14).replace(0, np.nan)
-    d["Stochastic %D"] = d["Stochastic %K"].rolling(3).mean()
-    tp = (h + l + c) / 3
-    sma_tp = tp.rolling(20).mean()
-    mad = tp.rolling(20).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
-    d["CCI 20"] = (tp - sma_tp) / (0.015 * mad.replace(0, np.nan))
-    highest14 = h.rolling(14).max()
-    lowest14 = l.rolling(14).min()
