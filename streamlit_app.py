@@ -93,4 +93,10 @@ def latest_intraday_price(s):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fundamentals(s):
-    try: return yf.Ticker(ticker(s)).info or {}
+    try:
+        info = yf.Ticker(ticker(s)).info
+        if isinstance(info, dict):
+            return info
+        return {}
+    except Exception as e:
+        return {}
